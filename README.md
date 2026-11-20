@@ -40,4 +40,42 @@ func main() {
 }
 ```
 
+## Multi-stage resampling
+
+For large or awkward ratios (e.g. previewing low sample rate audio at a much
+higher rate), a single-pass resampler needs very long filters and struggles to
+control spectral images. `NewMultiStageResampler` (or `UseMultiStage` on an
+existing resampler) factors the conversion ratio into a reproducible sequence
+of smaller stages, each doing zero-phase low-pass filtering plus interpolation
+or decimation:
+
+```go
+r, err := gomplerate.NewMultiStageResampler(1, 8000, 48000)
+if err != nil {
+	panic(err)
+}
+resampled := r.ResampleFloat64(data) // same interface as before
+```
+
+The stage plan is deterministic and can be inspected:
+
+```go
+stages, err := gomplerate.PlanStages(8000, 48000)
+// or, on an existing multi-stage resampler:
+stages = r.Stages()
+```
+
+Notes on the multi-stage path:
+
+- The output holds exactly `channels * round(frames * toRate / fromRate)`
+  samples (which may be 0 for very short inputs with a large downsample
+  ratio).
+- Inputs shorter than the FIR filters are implicitly zero-padded; a trailing
+  incomplete frame is ignored.
+- Intermediate rates never drop below `min(fromRate, toRate)`, so no part of
+  the passband is lost between stages.
+- Non-positive rates, overflowing intermediate rates and overflowing output
+  lengths are reported as errors (constructor/`PlanStages`) or return nil
+  (`ResampleFloat64`).
+
 that's it...

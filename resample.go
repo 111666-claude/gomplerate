@@ -33,6 +33,11 @@ type Resampler struct {
 	FromRate int // The original audio sample rate.
 	ToRate   int // The resampled audio sample rate.
 	Channels int // The amount of channels.
+
+	// stages, when non-nil, selects the multi-stage FIR pipeline (see
+	// UseMultiStage). A nil stages slice keeps the legacy single-pass
+	// spline resampler.
+	stages []stageFilter
 }
 
 func NewResampler(channels, inputRate, outputRate int) (*Resampler, error) {
@@ -59,6 +64,9 @@ func NewResampler(channels, inputRate, outputRate int) (*Resampler, error) {
 func (resampler *Resampler) ResampleFloat64(data []float64) []float64 {
 	if len(data) == 0 {
 		return nil
+	}
+	if resampler.stages != nil {
+		return resampler.resampleMultiStage(data)
 	}
 	if resampler.FromRate == resampler.ToRate {
 		return data[:]
@@ -116,10 +124,16 @@ func (resampler *Resampler) ResampleInt16(data []int16) (resampledi16 []int16) {
 	// Resample
 	resampledf64 := resampler.ResampleFloat64(f64data)
 
-	// Convert back to int16
+	// Convert back to int16 (clamped, resampling filters can overshoot)
 	resampledi16 = make([]int16, len(resampledf64))
 	for i := 0; i < len(resampledf64); i++ {
-		resampledi16[i] = int16(resampledf64[i] * float64(0x7FFF))
+		v := resampledf64[i] * float64(0x7FFF)
+		if v > 32767 {
+			v = 32767
+		} else if v < -32768 {
+			v = -32768
+		}
+		resampledi16[i] = int16(v)
 	}
 	return
 }
